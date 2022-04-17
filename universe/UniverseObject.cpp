@@ -378,12 +378,12 @@ void UniverseObject::RemoveSpecial(const std::string& name)
 { m_specials.erase(name); }
 
 UniverseObject::MeterMap UniverseObject::CensoredMeters(Visibility vis) const {
-    MeterMap retval;
-    if (vis >= Visibility::VIS_PARTIAL_VISIBILITY) {
-        retval = m_meters;
-    } else if (vis == Visibility::VIS_BASIC_VISIBILITY && m_meters.count(MeterType::METER_STEALTH))
-        retval.emplace(MeterType::METER_STEALTH, Meter{Meter::LARGE_VALUE, Meter::LARGE_VALUE});
-    return retval;
+    static constexpr auto JUST_STEALTH_METER = std::pair{MeterType::METER_STEALTH, Meter{Meter::LARGE_VALUE}};
+    if (vis >= Visibility::VIS_PARTIAL_VISIBILITY)
+        return m_meters;
+    else if (vis == Visibility::VIS_BASIC_VISIBILITY && m_meters.count(MeterType::METER_STEALTH))
+        return {JUST_STEALTH_METER};
+    return {};
 }
 
 void UniverseObject::ResetTargetMaxUnpairedMeters() {
