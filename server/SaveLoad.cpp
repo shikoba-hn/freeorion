@@ -207,13 +207,14 @@ int SaveGame(const std::string& filename, const ServerSaveGameData& server_save_
                     try {
                         DebugLogger() << "String Max Size: " << serial_str.max_size();
                         const std::string::size_type capacity = std::min(serial_str.max_size(), Pow(2,29)-12); // I read on StackOverflow that Qt grows string capacity to slightly less than powers of two due to some allocators perform worse at exact powers of 2
-                        DebugLogger() << "Reserving Capacity:: " << capacity;
+                        DebugLogger() << "Reserving Capacity: " << capacity;
                         serial_str.reserve(capacity);
                         compressed_str.reserve(Pow(2,26)-12);
                     }
                     catch (...) {
                         DebugLogger() << "Unable to preallocate full serialization buffers. Attempting serialization with dynamic buffer allocation.";
                     }
+                    DebugLogger() << "Buffers allocated";
 
                     // wrap buffer string in iostream::stream to receive serialized data
                     typedef boost::iostreams::back_insert_device<std::string> InsertDevice;
