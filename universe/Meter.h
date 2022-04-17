@@ -1,7 +1,6 @@
 #ifndef _Meter_h_
 #define _Meter_h_
 
-
 #include <array>
 #include <string>
 #include <boost/serialization/access.hpp>
@@ -14,8 +13,18 @@
   * about gamestate. A typical example is the population meter of a planet. */
 class FO_COMMON_API Meter {
 public:
-    [[nodiscard]] constexpr float Current() const noexcept { return cur; };
-    [[nodiscard]] constexpr float Initial() const noexcept { return init; };
+    Meter() = default;
+    constexpr explicit Meter(float v) :
+        cur(FromFloat(v)),
+        init(FromFloat(v))
+    {};
+    constexpr Meter(float c, float i) :
+        cur(FromFloat(c)),
+        init(FromFloat(i))
+    {}
+
+    [[nodiscard]] constexpr float Current() const noexcept { return FromInt(cur); };
+    [[nodiscard]] constexpr float Initial() const noexcept { return FromInt(init); };
 
     [[nodiscard]] std::array<std::string::value_type, 64> Dump(unsigned short ntabs = 0) const noexcept; ///< returns text of meter values
 
@@ -25,18 +34,18 @@ public:
     [[nodiscard]] constexpr bool operator<(const Meter& rhs) const noexcept
     { return cur < rhs.cur || (cur == rhs.cur && init < rhs.init); }
 
-    constexpr void SetCurrent(float current_value) noexcept { cur = current_value; }
+    constexpr void SetCurrent(float current_value) noexcept { cur = FromFloat(current_value); }
 
     constexpr void Set(float current_value, float initial_value) noexcept {
-        cur = current_value;
-        init = initial_value;
+        cur = FromFloat(current_value);
+        init = FromFloat(initial_value);
     }
 
-    constexpr void ResetCurrent() noexcept { cur = DEFAULT_VALUE; } // initial unchanged
+    constexpr void ResetCurrent() noexcept { cur = FromFloat(DEFAULT_VALUE); } // initial unchanged
 
     constexpr void Reset() noexcept {
-        cur = DEFAULT_VALUE;
-        init = DEFAULT_VALUE;
+        cur = FromFloat(DEFAULT_VALUE);
+        init = FromFloat(DEFAULT_VALUE);
     }
 
     constexpr void AddToCurrent(float adjustment) noexcept { cur += adjustment; }
@@ -50,25 +59,47 @@ public:
     static constexpr float LARGE_VALUE = static_cast<float>(2 << 15);   ///< a very large number, which is useful to set current to when it will be later clamped, to ensure that the result is the max value in the clamp range
     static constexpr float INVALID_VALUE = -LARGE_VALUE;                ///< sentinel value to indicate no valid value for this meter
 
-    float cur = DEFAULT_VALUE;
-    float init = DEFAULT_VALUE;
-
 private:
+    static constexpr float FLOAT_INT_SCALE = 1000.0f;
+    static constexpr float MAX_SCALED_VAL = INT_MAX / FLOAT_INT_SCALE;
+    static_assert(LARGE_VALUE < MAX_SCALED_VAL);
+    static constexpr int FromFloat(float f) { return static_cast<int>(f * FLOAT_INT_SCALE); }
+    static constexpr float FromInt(int i) { return i / FLOAT_INT_SCALE; }
+
+    int cur = FromFloat(DEFAULT_VALUE);
+    int init = FromFloat(DEFAULT_VALUE);
+
     friend class boost::serialization::access;
     template <typename Archive>
     void serialize(Archive& ar, const unsigned int version);
 };
 
-BOOST_CLASS_VERSION(Meter, 1)
+BOOST_CLASS_VERSION(Meter, 2)
 
 
 template <typename Archive>
 void Meter::serialize(Archive& ar, const unsigned int version)
 {
-    // use minimum size NVP label to reduce archive size bloat for very-often serialized meter values...
+    if constexpr (Archive::is_loading::value) {
+        if (version < 2) {
+            float c = 0.0f, i = 0.0f;
+            ar  & boost::serialization::make_nvp("c", c)
+                & boost::serialization::make_nvp("i", i);
+            cur = FromFloat(c);
+            init = FromFloat(i);
+            return;
+        }
+    }
     ar  & boost::serialization::make_nvp("c", cur)
         & boost::serialization::make_nvp("i", init);
 }
 
+namespace boost::archive {
+    class xml_iarchive;
+    class xml_oarchive;
+}
+
+template<> void Meter::serialize(boost::archive::xml_iarchive&, const unsigned int version);
+template<> void Meter::serialize(boost::archive::xml_oarchive&, const unsigned int version);
 
 #endif
