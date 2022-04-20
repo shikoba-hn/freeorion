@@ -334,8 +334,8 @@ namespace FreeOrionPython {
         //   Meter   //
         ///////////////
         py::class_<Meter, boost::noncopyable>("meter", py::no_init)
-            .add_property("current",            &Meter::Current)
-            .add_property("initial",            &Meter::Initial)
+            .def("current",                     +[](const Meter& m) -> float { return m.Current(); })
+            .add_property("initial",            make_function(&Meter::Initial, py::return_value_policy<py::return_by_value>()))
             .def("dump",                        +[](const Meter& m) -> std::string { return m.Dump(0).data(); },
                                                 py::return_value_policy<py::return_by_value>(),
                                                 "Returns string with debug information.")
