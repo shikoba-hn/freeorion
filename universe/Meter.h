@@ -55,9 +55,9 @@ public:
     constexpr void BackPropagate() noexcept { init = cur; }
 
     using ToCharsArrayT = std::array<std::string::value_type, 24>;
-    ToCharsArrayT ToChars() const;
+    [[nodiscard]] ToCharsArrayT ToChars() const;
     size_t ToChars(char* buffer, char* buffer_end) const;
-    void SetFromChars(std::string_view chars);
+    size_t SetFromChars(std::string_view chars);
 
     static constexpr float DEFAULT_VALUE = 0.0f;                        ///< value assigned to current or initial when resetting or when no value is specified in a constructor
     static constexpr float LARGE_VALUE = static_cast<float>(2 << 15);   ///< a very large number, which is useful to set current to when it will be later clamped, to ensure that the result is the max value in the clamp range

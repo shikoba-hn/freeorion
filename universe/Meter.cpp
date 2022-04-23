@@ -29,14 +29,10 @@ std::array<std::string::value_type, 64> Meter::Dump(unsigned short ntabs) const 
     // should be like "-65535.99" or 9 chars per number, if constrained by
     // LARGE_VALUE, but Meter can be initialized with larger values, so
     // a full 64-char array is used as the buffer and returned.
-    *result_ptr = ' ';
-    *++result_ptr = 'I';
-    *++result_ptr = 'n';
-    *++result_ptr = 'i';
-    *++result_ptr = 't';
-    *++result_ptr = ':';
-    *++result_ptr = ' ';
-    ToChars(result_ptr + 1, FromInt(init));
+    static constexpr std::string_view init_label = " Init: ";
+    std::copy_n(init_label.data(), init_label.size(), result_ptr);
+    result_ptr += init_label.size();
+    ToChars(result_ptr, FromInt(init));
 
     return buffer;
 }
@@ -59,8 +55,9 @@ namespace {
 }
 
 Meter::ToCharsArrayT Meter::ToChars() const {
-    static constexpr auto max_val = std::numeric_limits<decltype(cur)>::max();
-    static_assert(max_val < Pow(10LL, 10LL));
+    using internal_meter_t = decltype(cur);
+    static constexpr auto max_val = std::numeric_limits<int>::max();
+    static_assert(max_val < Pow(10LL, 10LL)); // ensure serialized form of int can fit in 11 digits
     static_assert(max_val > Pow(10, 9));
     static constexpr auto digits_one_int = 1 + 10;
     static constexpr auto digits_meter = 2*digits_one_int + 1 + 1; // two numbers, one space, one padding to be safe
@@ -93,32 +90,38 @@ size_t Meter::ToChars(char* buffer, char* buffer_end) const {
 #endif
 }
 
-void Meter::SetFromChars(std::string_view chars) {
+size_t Meter::SetFromChars(std::string_view chars) {
 #if defined(__cpp_lib_to_chars)
     auto buffer_end = chars.data() + chars.size();
-    auto [ptr, ec] = std::from_chars(chars.data(), buffer_end, cur);
-    if (ec == std::errc())
-        std::from_chars(ptr, buffer_end, init);
+    auto result = std::from_chars(chars.data(), buffer_end, cur);
+    if (result.ec == std::errc()) {
+        ++result.ptr; // for ' ' separator
+        result = std::from_chars(result.ptr, buffer_end, init);
+    }
+    return std::distance(chars.data(), result.ptr);
 #else
-    sscanf(chars.data(), "%d %d", &cur, &init);
+    int chars_consumed = 0;
+    sscanf(chars.data(), "%d %d%n", &cur, &init, &chars_consumed);
+    return chars_consumed;
 #endif
 }
 
 template <>
 void Meter::serialize(boost::archive::xml_iarchive& ar, const unsigned int version)
 {
+    using namespace boost::serialization;
     using Archive_t = typename std::remove_reference_t<decltype(ar)>;
     static_assert(Archive_t::is_loading::value);
     if (version < 2) {
         float c = 0.0f, i = 0.0f;
-        ar  & boost::serialization::make_nvp("c", c)
-            & boost::serialization::make_nvp("i", i);
+        ar  & make_nvp("c", c)
+            & make_nvp("i", i);
         cur = FromFloat(c);
         init = FromFloat(i);
 
     } else {
         std::string buffer;
-        ar & boost::serialization::make_nvp("m", buffer);
+        ar >> make_nvp("m", buffer);
         SetFromChars(buffer);
     }
 }
@@ -126,8 +129,9 @@ void Meter::serialize(boost::archive::xml_iarchive& ar, const unsigned int versi
 template <>
 void Meter::serialize(boost::archive::xml_oarchive& ar, const unsigned int version)
 {
+    using namespace boost::serialization;
     using Archive_t = typename std::remove_reference_t<decltype(ar)>;
     static_assert(Archive_t::is_saving::value);
     std::string s{ToChars().data()};
-    ar << boost::serialization::make_nvp("m", s);
+    ar << make_nvp("m", s);
 }
