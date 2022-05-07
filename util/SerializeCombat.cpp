@@ -4,9 +4,42 @@
 #include "../combat/CombatEvents.h"
 #include "../combat/CombatLogManager.h"
 
+#if __has_include(<charconv>)
+#include <charconv>
+#else
+#include <stdio.h>
+#endif
 
 namespace {
     DeclareThreadSafeLogger(combat_log);
+
+    template <typename T>
+    size_t ToChars(T num, char* buffer, char* buffer_end) {
+#if defined(__cpp_lib_to_chars)
+        auto result_ptr = std::to_chars(buffer, buffer_end, num).ptr;
+        return std::distance(buffer, result_ptr);
+#else
+        size_t buffer_sz = std::distance(buffer, buffer_end);
+        auto temp = std::to_string(num);
+        auto out_sz = std::min(buffer_sz, temp.size());
+        std::copy_n(temp.begin(), out_sz, buffer);
+        return out_sz;
+#endif
+    }
+
+    template <typename T>
+    auto FromChars(T num, const char* buffer, const char* const buffer_end)
+        -> std::pair<const char*, size_t>
+    {
+#if defined(__cpp_lib_to_chars)
+        auto result = std::from_chars(buffer, buffer_end, num);
+        return {result.ptr, result.ec != std::errc()};
+#else
+        int chars_consumed = 0;
+        auto matched = sscanf(buffer, "%u%n", &num, &chars_consumed);
+        return {buffer + chars_consumed, matched};
+#endif
+    }
 }
 
 template<typename Archive>
@@ -293,6 +326,77 @@ void serialize(Archive& ar, CombatParticipantState& obj, const unsigned int vers
        & make_nvp("max_health", obj.max_health);
 }
 
+template <typename Archive>
+void SerializeStates(Archive& ar, std::map<int, CombatParticipantState>& ps, unsigned int const version)
+{
+    using namespace boost::serialization;
+
+    if constexpr (std::is_same_v<Archive, freeorion_xml_oarchive>) {
+        static constexpr auto digits_one_int = 1 + 10;
+        static constexpr auto digits_ps_entry = 3*digits_one_int + 3; // two numbers, two spaces spaces, one padding to be safe
+
+        // creat ebuffer to store text for full map
+        size_t count = ps.size();
+
+        std::string buffer(count * digits_ps_entry + digits_one_int, 0);
+
+        char* next = buffer.data();
+        char* buffer_end = buffer.data() + buffer.length();
+
+        next += ToChars(count, next, buffer_end);
+
+        for (const auto& [obj_id, state] : ps) {
+            *next++ = ' ';
+            next += ToChars(obj_id, next, buffer_end);
+            *next++ = ' ';
+            next += ToChars(Meter::FromFloat(state.current_health), next, buffer_end);
+            *next++ = ' ';
+            next += ToChars(Meter::FromFloat(state.max_health), next, buffer_end);
+        }
+
+        buffer.resize(std::distance(buffer.data(), next));
+
+        ar << make_nvp("participant_states", buffer);
+        return;
+
+    } else if constexpr (std::is_same_v<Archive, freeorion_xml_iarchive>) {
+        if (version >= 2) {
+            std::string buffer;
+            ar >> make_nvp("participant_states", buffer);
+
+            const char* next = buffer.data();
+            const char* buffer_end = next + buffer.length();
+
+            size_t count = 0;
+            auto result = FromChars(count, next, buffer_end);
+            next = result.first;
+
+            int health = 0, max = 0, obj_id = INVALID_OBJECT_ID;
+            while (count-- > 0 && result.second >= 1) {
+                while (std::distance(next, buffer_end) > 0 && *next == ' ')
+                    ++next;
+                result = FromChars(obj_id, next, buffer_end);
+                if (result.second < 1 || obj_id < 0)
+                    break;
+                while (std::distance(next, buffer_end) > 0 && *next == ' ')
+                    ++next;
+                result = FromChars(health, next, buffer_end);
+                if (result.second < 1)
+                    break;
+                next = result.first;
+                while (std::distance(next, buffer_end) > 0 && *next == ' ')
+                    ++next;
+                ps.emplace(std::piecewise_construct,
+                           std::forward_as_tuple(obj_id),
+                           std::forward_as_tuple(Meter::FromInt(health), Meter::FromInt(max)));
+            }
+
+            return;
+        }
+    }
+    // fallback for old format input or non-XML archives
+    ar & make_nvp("participant_states", ps);
+}
 
 template <typename Archive>
 void serialize(Archive& ar, CombatLog& obj, const unsigned int version)
@@ -325,7 +429,7 @@ void serialize(Archive& ar, CombatLog& obj, const unsigned int version)
         ErrorLogger() << "combat events serializing failed!: caught exception: " << e.what();
     }
 
-    ar & make_nvp("participant_states", obj.participant_states);
+    SerializeStates(ar, obj.participant_states, version);
 }
 
 

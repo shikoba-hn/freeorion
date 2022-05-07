@@ -230,7 +230,7 @@ void serialize(Archive& ar, Universe& u, unsigned int const version)
 
 namespace {
     size_t ToChars(size_t num, char* buffer, char* buffer_end) {
-#if defined(__cpp_lib_to_chars)
+#if 0 && defined(__cpp_lib_to_chars)
         auto result_ptr = std::to_chars(buffer, buffer_end, num).ptr;
         return std::distance(buffer, result_ptr);
 #else
@@ -241,6 +241,20 @@ namespace {
         return out_sz;
 #endif
     }
+
+    auto FromChars(const char* buffer, const char* const buffer_end, size_t& count)
+        -> std::pair<const char*, size_t>
+    {
+#if 0 && defined(__cpp_lib_to_chars)
+        auto result = std::from_chars(buffer, buffer_end, count);
+        return {result.ptr, result.ec != std::errc()};
+#else
+        int chars_consumed = 0;
+        auto matched = sscanf(buffer, "%u%n", &count, &chars_consumed);
+        return {buffer + chars_consumed, matched};
+#endif
+    }
+
 
     constexpr size_t num_meters_possible{static_cast<size_t>(MeterType::NUM_METER_TYPES)};
     constexpr size_t single_meter_text_size{ArrSize(Meter::ToCharsArrayT())};
@@ -353,24 +367,14 @@ namespace {
         size_t count = 0;
         const char* const buffer_end = buffer.c_str() + buffer.size();
 
-#if defined(__cpp_lib_to_chars)
-        auto result = std::from_chars(buffer.c_str(), buffer_end, count);
-        count = std::min(count, num_meters_possible);
-        if (result.ec != std::errc())
-            return;
-        auto next{result.ptr};
-#else
-        int chars_consumed = 0;
-        const char* next = buffer.data();
-        auto matched = sscanf(next, "%u%n", &count, &chars_consumed);
+        auto [next, matched] = FromChars(buffer.c_str(), buffer_end, count);
         if (matched < 1)
             return;
-
         count = std::min(count, num_meters_possible);
-        next += chars_consumed;
-#endif
+
         while (std::distance(next, buffer_end) > 0 && *next == ' ')
             ++next;
+
 
         for (size_t idx = 0; idx < count; ++idx) {
             if (std::distance(next, buffer_end) < 7) // 7 is enough for "POP 0 0" or similar
@@ -483,8 +487,8 @@ void serialize(Archive& ar, Planet& obj, unsigned int const version)
         & make_nvp("m_orbital_period", obj.m_orbital_period)
         & make_nvp("m_initial_orbital_position", obj.m_initial_orbital_position)
         & make_nvp("m_rotational_period", obj.m_rotational_period)
-        & make_nvp("m_axial_tilt", obj.m_axial_tilt)
-        & make_nvp("m_buildings", obj.m_buildings);
+        & make_nvp("m_axial_tilt", obj.m_axial_tilt);
+    ar  & make_nvp("m_buildings", obj.m_buildings);
     if (version < 2) {
         // if deserializing an old save, default to standard default never-colonized turn
         obj.m_turn_last_colonized = INVALID_GAME_TURN;

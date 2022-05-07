@@ -63,10 +63,11 @@ public:
     static constexpr float LARGE_VALUE = static_cast<float>(2 << 15);   ///< a very large number, which is useful to set current to when it will be later clamped, to ensure that the result is the max value in the clamp range
     static constexpr float INVALID_VALUE = -LARGE_VALUE;                ///< sentinel value to indicate no valid value for this meter
 
-private:
-    static constexpr float FLOAT_INT_SCALE = 1000.0f;
     static constexpr int FromFloat(float f) { return static_cast<int>(f * FLOAT_INT_SCALE); }
     static constexpr float FromInt(int i) { return i / FLOAT_INT_SCALE; }
+
+private:
+    static constexpr float FLOAT_INT_SCALE = 1000.0f;
 
     int cur = FromFloat(DEFAULT_VALUE);
     int init = FromFloat(DEFAULT_VALUE);
