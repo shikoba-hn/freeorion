@@ -94,18 +94,60 @@ namespace {
         });
     }
 
+    constexpr int ToIntCX(std::string_view sv, int default_result = -1) {
+        if (sv.empty())
+            return default_result;
+
+        bool is_negative = (sv.front() == '-');
+        sv = sv.substr(is_negative);
+        for (auto c : sv)
+            if (c > '9' || c < '0')
+                return default_result;
+
+        int64_t retval = 0;
+        for (auto c : sv) {
+            retval *= 10;
+            retval += (c - '0');
+        }
+
+        retval *= (is_negative ? -1 : 1);
+
+        constexpr int64_t max_int = std::numeric_limits<int>::max();
+        constexpr int64_t min_int = std::numeric_limits<int>::min();
+
+        return (retval > max_int) ? max_int :
+               (retval < min_int) ? min_int :
+               retval;
+    }
+    static constexpr auto a = ToIntCX("2147483647");
+    static constexpr auto b = ToIntCX("-104");
+    static constexpr auto c = ToIntCX("banana", -10);
+    static constexpr auto d = ToIntCX("-banana");
+    static constexpr auto e = ToIntCX("-0banana", -20);
+    static constexpr auto f = ToIntCX("");
+    static constexpr auto g = ToIntCX("0");
+    static constexpr auto h = ToIntCX("0000");
+    static constexpr auto q = ToIntCX("-0000");
+
+    static_assert(a == 2147483647);
+    static_assert(b == -104);
+    static_assert(c == -10);
+    static_assert(d == -1);
+    static_assert(e == -20);
+    static_assert(f == -1);
+    static_assert(g == 0);
+    static_assert(h == 0);
+    static_assert(q == 0);
+
     // wrapper for converting string to integer
     int ToInt(std::string_view sv, int default_result = -1) {
-        int retval = default_result;
 #if defined(__cpp_lib_to_chars)
+        int retval = default_result;
         std::from_chars(sv.data(), sv.data() + sv.size(), retval);
-#else
-        try {
-            retval = boost::lexical_cast<int>(sv);
-        } catch (...) {
-        }
-#endif
         return retval;
+#else
+        return ToIntCX(sv, default_result);
+#endif
     }
 
     // compile-time exponentiation
