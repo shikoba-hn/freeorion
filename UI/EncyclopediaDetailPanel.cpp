@@ -189,7 +189,7 @@ namespace {
     template<typename T, std::enable_if<std::is_integral_v<T>>* = nullptr>
     auto ToChars(T t) {
 #if !defined(__cpp_lib_to_chars)
-        return std::to_string(num); // could use system locale, affecting threaded performance...
+        return std::to_string(t);
 #else
         if constexpr (std::is_same_v<T, bool>) {
             return t ? std::string_view{"true"} : std::string_view{"false"};
