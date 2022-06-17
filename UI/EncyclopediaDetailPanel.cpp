@@ -119,25 +119,25 @@ namespace {
                (retval < min_int) ? min_int :
                retval;
     }
-    static constexpr auto a = ToIntCX("2147483647");
-    static constexpr auto b = ToIntCX("-104");
-    static constexpr auto c = ToIntCX("banana", -10);
-    static constexpr auto d = ToIntCX("-banana");
-    static constexpr auto e = ToIntCX("-0banana", -20);
-    static constexpr auto f = ToIntCX("");
-    static constexpr auto g = ToIntCX("0");
-    static constexpr auto h = ToIntCX("0000");
-    static constexpr auto q = ToIntCX("-0000");
+    static constexpr auto aCX = ToIntCX("2147483647");
+    static constexpr auto bCX = ToIntCX("-104");
+    static constexpr auto cCX = ToIntCX("banana", -10);
+    static constexpr auto dCX = ToIntCX("-banana");
+    static constexpr auto eCX = ToIntCX("-0banana", -20);
+    static constexpr auto fCX = ToIntCX("");
+    static constexpr auto gCX = ToIntCX("0");
+    static constexpr auto hCX = ToIntCX("0000");
+    static constexpr auto qCX = ToIntCX("-0000");
 
-    static_assert(a == 2147483647);
-    static_assert(b == -104);
-    static_assert(c == -10);
-    static_assert(d == -1);
-    static_assert(e == -20);
-    static_assert(f == -1);
-    static_assert(g == 0);
-    static_assert(h == 0);
-    static_assert(q == 0);
+    static_assert(aCX == 2147483647);
+    static_assert(bCX == -104);
+    static_assert(cCX == -10);
+    static_assert(dCX == -1);
+    static_assert(eCX == -20);
+    static_assert(fCX == -1);
+    static_assert(gCX == 0);
+    static_assert(hCX == 0);
+    static_assert(qCX == 0);
 
     // wrapper for converting string to integer
     int ToInt(std::string_view sv, int default_result = -1) {
@@ -197,9 +197,9 @@ namespace {
         } else if constexpr (Digits(std::numeric_limits<T>::min()) < 15 &&
                              Digits(std::numeric_limits<T>::max()) < 15)
         {
-            std::string retval(15, 0); // should fit in small string optimization internal buffer
-            std::to_chars(retval.data(), retval.data() + retval.size(), t);
-            return retval;
+            std::array<std::string::value_type, 15> buf{};
+            std::to_chars(buf.data(), buf.data() + buf.size(), t);
+            return std::string{buf.data()};
 
         } else if constexpr (Digits(std::numeric_limits<T>::min()) < 24 &&
                              Digits(std::numeric_limits<T>::max()) < 24)
@@ -292,6 +292,9 @@ namespace {
         //  "ENC_HOMEWORLDS" omitted due to weird formatting of article titles
         return dir_names;
     }
+
+    std::map<std::string, std::string> prepended_homeworld_names;
+    std::mutex prepended_homeworld_names_access;
 
     /** Returns map from (Human-readable and thus sorted article name) to
         pair of (article link tag text, stringtable key for article category or
@@ -490,9 +493,11 @@ namespace {
                                     std::forward_as_tuple(UserString(entry.first)),
                                     std::forward_as_tuple(species_entry.append("\n"), entry.first));
             }
+            static constexpr std::string_view slash_thing{u8"\u20E0 "};
             retval.emplace_back(std::piecewise_construct,
-                                std::forward_as_tuple("⃠ "),
+                                std::forward_as_tuple(slash_thing),
                                 std::forward_as_tuple("\n\n", "  "));
+
             for (const auto& entry : GetSpeciesManager()) {
                 if (!homeworlds.count(entry.first) || homeworlds.at(entry.first).empty()) {
                     std::string species_entry{
@@ -501,9 +506,16 @@ namespace {
                         .append(UserString("NO_HOMEWORLD"))
                         .append("\n")
                     };
-                    retval.emplace_back(std::piecewise_construct,
-                                        std::forward_as_tuple("⃠⃠⃠ " + UserString(entry.first)),
-                                        std::forward_as_tuple(std::move(species_entry), entry.first));
+                    const auto& us_entry_first = UserString(entry.first);
+                    {
+                        std::scoped_lock prepended_lock{prepended_homeworld_names_access};
+                        const auto& prep_entry = prepended_homeworld_names.try_emplace(
+                            us_entry_first, std::string{slash_thing}.append(us_entry_first)).first->second;
+
+                        retval.emplace_back(std::piecewise_construct,
+                                            std::forward_as_tuple(prep_entry),
+                                            std::forward_as_tuple(std::move(species_entry), entry.first));
+                    }
                 }
             }
 
@@ -1283,6 +1295,11 @@ namespace {
         for (auto& [readable_article_name, link_category] : sorted_entries) {
             auto& [link_text, category_str_key] = link_category;
 
+            if (!utf8::is_valid(readable_article_name.begin(), readable_article_name.end())) {
+                ErrorLogger() << "GetSubDirs invalid article name: " << readable_article_name
+                              << "  in category: " << category_str_key;
+            }
+
             // explicitly exclude textures and input directory itself
             if (category_str_key == "ENC_TEXTURES" || category_str_key == dir_name)
                 continue;
@@ -1291,8 +1308,8 @@ namespace {
                                          GetSubDirs,
                                          category_str_key, exclude_custom_categories_from_dir_name, depth));
 
-            retval.emplace(std::pair{std::move(category_str_key), dir_name},
-                           std::pair{readable_article_name, std::move(link_text)});
+            retval.emplace(std::pair{category_str_key, dir_name}, // don't move from category_str_key as it's viewed by the above future
+                           std::pair{std::string{readable_article_name}, std::move(link_text)});
         }
 
         for (auto& fut : futures)
@@ -2082,8 +2099,9 @@ namespace {
         }
 
         // Issued orders this turn
-        detailed_description.append("\n\n").append(UserString("ISSUED_ORDERS"))
-            .append("\n").append(GGHumanClientApp::GetApp()->Orders().Dump());
+        if (empire_id == GGHumanClientApp::GetApp()->EmpireID())
+            detailed_description.append("\n\n").append(UserString("ISSUED_ORDERS"))
+                                .append("\n").append(GGHumanClientApp::GetApp()->Orders().Dump());
 
         // Techs
         auto& techs = empire->ResearchedTechs();
@@ -3585,21 +3603,63 @@ namespace {
         }
     }
 
-    auto ExtractWords(std::string_view text) {
-        return GG::GUI::GetGUI()->FindWordsStringViews(text);
+    auto ExtractWords(std::string_view text)
+    {
+        if (!utf8::is_valid(text.cbegin(), text.cend()))
+            ErrorLogger() << "ExtractWords passed invalid UTF8:" << text;
+
+        auto retval = GG::GUI::GetGUI()->FindWordsStringViews(text);
+
+        for (const auto& word : retval)
+            if (!utf8::is_valid(word.cbegin(), word.cend()))
+                ErrorLogger() << "ExtractWords extracted invalid UTF8:" << word;
+
+        return retval;
+    }
+
+
+    static constexpr unsigned char multibyte_char_min = 0x80;
+
+    static constexpr wchar_t ALPHA = 0x0391;
+    static constexpr auto ALPHA_str = u8"\u0391";
+    static constexpr wchar_t alpha = 0x03B1;
+    static constexpr auto alpha_str = u8"\u03B1";
+
+    static constexpr wchar_t OMEGA = 0x03A9;
+    static constexpr auto OMEGA_str = u8"\u03A9";
+    static constexpr wchar_t omega = 0x03A9;
+    static constexpr auto omega_str = u8"\u03C9";
+
+
+    bool HasGreekLowerOrSingleByteChars(std::string_view sv) {
+        using utf8_wchar_iterator = utf8::wchar_iterator<std::string_view::const_iterator>;
+        utf8_wchar_iterator first(sv.begin(), sv.begin(), sv.end());
+        utf8_wchar_iterator last(sv.end(), sv.begin(), sv.end());
+        static_assert(std::is_same_v<wchar_t, decltype(first)::value_type>);
+
+        auto result = std::all_of(first, last, [](wchar_t wc)
+                                  { return (wc < multibyte_char_min) || (wc >= alpha && wc < omega); });
+
+        return result;
     }
 
     bool HasMultibyteChars(std::string_view sv) {
-        return std::any_of(sv.begin(), sv.end(),
-                           [](unsigned char c) -> bool { return c & 0x80; });
+        auto result = std::any_of(sv.begin(), sv.end(),
+                                  [](unsigned char c) -> bool { return c >= multibyte_char_min; });
+        return result;
     }
 
     void ToLower(std::string& buf) {
-        if (HasMultibyteChars(buf)) {
-            buf = boost::locale::to_lower(buf, GetLocale());
-        } else {
+        using utf8_wchar_iterator = utf8::wchar_iterator<std::string::iterator>;
+
+        if (!HasMultibyteChars(buf) || HasGreekLowerOrSingleByteChars(buf)) {
+            // make english/latin letters lower case
             std::transform(buf.begin(), buf.end(), buf.begin(),
-                           [](auto c) { return (c >= 'A' && a <= 'Z') ? (c - 'A' + 'a') : c; });
+                           [](unsigned char c) { return c + (c >= 'A' && c <= 'Z') * ('a' - 'A'); });
+
+        } else  {
+            buf = boost::locale::to_lower(buf, GetLocale());
+
         }
     }
 
@@ -3610,7 +3670,7 @@ namespace {
             std::string retval;
             retval.reserve(buf.size());
             std::transform(buf.begin(), buf.end(), std::back_inserter(retval),
-                           [](auto c) { return (c >= 'A' && a <= 'Z') ? (c - 'A' + 'a') : c; });
+                           [](auto c) { return c + (c >= 'A' && c <= 'Z') * ('a' - 'A'); });
             return retval;
         }
     }
@@ -3643,6 +3703,18 @@ namespace {
                             [title_word](const auto& wist) { return wist == title_word; }))
             {
                 word_match = std::move(article_name_link);
+                /*
+                DebugLogger() << "! title word: " << title_word << " is word in search text:"
+                              << [&words_in_search_text](){
+                    std::string retval;
+                    for (auto w : words_in_search_text) {
+                        retval += " ";
+                        retval += w;
+                    }
+
+                    return retval;
+                }();
+                */
                 return;
             }
         }
@@ -3655,6 +3727,7 @@ namespace {
                 continue;
             if (boost::contains(article_name, word)) {
                 partial_match = std::move(article_name_link);
+                //DebugLogger() << "! article name " << article_name << "  contains: " << word;
                 return;
             }
         }
@@ -3669,8 +3742,10 @@ namespace {
             // article present in pedia directly
             const auto& article_text{UserString(article_entry.description)};
             std::string article_text_lower = ToLowerCopy(article_text);
-            if (boost::contains(article_text_lower, search_text))
+            if (boost::contains(article_text_lower, search_text)) {
+                //DebugLogger() << "! article text " << article_text_lower << "  contains: " << search_text;
                 article_match = std::move(article_name_link);
+            }
             return;
         }
 
@@ -3694,11 +3769,13 @@ namespace {
                                   dummyD, true);
         if (boost::contains(detailed_description, search_text)) {
             article_match = std::move(article_name_link);
+            //DebugLogger() << "! desc " << detailed_description << "  contains: " << search_text;
             return;
         }
         ToLower(detailed_description);
         if (boost::contains(detailed_description, search_text)) {
             article_match = std::move(article_name_link);
+            //DebugLogger() << "! desc " << detailed_description << "  lower case contains: " << search_text;
             return;
         }
     }
@@ -3743,6 +3820,20 @@ void EncyclopediaDetailPanel::HandleSearchTextEntered() {
     // assemble link text to all pedia entries, indexed by name
     std::size_t idx = -1;
     for (auto& [article_key_directory, article_name_link] : pedia_entries) {
+        if (!utf8::is_valid(article_key_directory.first.begin(), article_key_directory.first.end())) {
+            ErrorLogger() << "Invalid key UTF8: " << article_key_directory.first
+                          << "  name: " << article_name_link.first
+                          << "  dir: " << article_key_directory.second;
+            continue;
+        }
+        if (!utf8::is_valid(article_name_link.first.begin(), article_name_link.first.end())) {
+            ErrorLogger() << "Invalid name UTF8: " << article_name_link.first
+                          << "  key: " << article_key_directory.first
+                          << "  dir: " << article_key_directory.second;
+            continue;
+        }
+
+
         idx++;
         auto& emr{exact_match_report[idx]};
         auto& wmr{word_match_report[idx]};
