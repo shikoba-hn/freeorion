@@ -64,7 +64,7 @@ WndEvent::EventType ButtonEvent(WndEvent::EventType left_type, unsigned int mous
 }
 
 namespace {
-    using utf8_wchar_iterator = utf8::wchar_iterator<std::string_view::const_iterator> ;
+    using utf8_wchar_iterator = utf8::wchar_iterator<std::string_view::const_iterator>;
     using word_regex = boost::xpressive::basic_regex<utf8_wchar_iterator>;
     using word_regex_iterator = boost::xpressive::regex_iterator<utf8_wchar_iterator>;
 
@@ -1077,7 +1077,19 @@ std::vector<std::string_view> GUI::FindWordsStringViews(std::string_view str) co
     const word_regex_iterator end_it;
 
     std::transform(it, end_it, std::back_inserter(retval),
-                   [str](const auto& match) { return str.substr(match.position(), match.length()); });
+                   [str, first](const auto& match_result) {
+                       // convert multi-byte character position and length to char indices / lengths
+                       auto word_pos_it = first;
+                       std::advance(word_pos_it, match_result.position());
+                       auto start_idx(std::distance(str.begin(), word_pos_it.base()));
+
+                       auto word_end_it = word_pos_it;
+                       std::advance(word_end_it, match_result.length());
+
+                       auto len = std::distance(word_pos_it.base(), word_end_it.base());
+
+                       return str.substr(start_idx, len);
+                   });
 
     return retval;
 }
