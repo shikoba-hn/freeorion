@@ -1813,7 +1813,7 @@ namespace {
         int client_empire_id = GGHumanClientApp::GetApp()->EmpireID();
 
         int this_location_id = ClientUI::GetClientUI()->GetMapWnd()->SelectedPlanetID();
-        if (this_location_id == INVALID_OBJECT_ID)
+        if (this_location_id == INVALID_OBJECT_ID && !only_description)
             this_location_id = DefaultLocationForEmpire(client_empire_id);
 
         // Building types
@@ -1834,11 +1834,11 @@ namespace {
         } else {
             detailed_description += str(FlexibleFormat(UserString("ENC_AUTO_TIME_COST_VARIABLE_STR")) % UserString("ENC_VERB_PRODUCE_STR"));
             if (auto planet = Objects().get<Planet>(this_location_id)) {
-                int local_cost = building_type->ProductionCost(client_empire_id, this_location_id);
-                int local_time = building_type->ProductionTime(client_empire_id, this_location_id);
+                int local_cost = only_description ? 1 : building_type->ProductionCost(client_empire_id, this_location_id);
+                int local_time = only_description ? 1 : building_type->ProductionTime(client_empire_id, this_location_id);
                 auto& local_name = planet->Name();
-                detailed_description += str(FlexibleFormat(UserString("ENC_AUTO_TIME_COST_VARIABLE_DETAIL_STR")) 
-                                        % local_name % local_cost % cost_units % local_time);
+                detailed_description += str(FlexibleFormat(UserString("ENC_AUTO_TIME_COST_VARIABLE_DETAIL_STR"))
+                                            % local_name % local_cost % cost_units % local_time);
             }
         }
 
@@ -3596,7 +3596,7 @@ namespace {
 
     void ToLower(std::string& buf) {
         if (HasMultibyteChars(buf)) {
-            buf = boost::locale::to_lower(buf, GetLocale("en_US.UTF-8"));
+            buf = boost::locale::to_lower(buf, GetLocale());
         } else {
             std::transform(buf.begin(), buf.end(), buf.begin(),
                            [](auto c) { return (c >= 'A' && a <= 'Z') ? (c - 'A' + 'a') : c; });
@@ -3605,7 +3605,7 @@ namespace {
 
     std::string ToLowerCopy(std::string_view buf) {
         if (HasMultibyteChars(buf)) {
-            return boost::locale::to_lower(buf.data(), GetLocale("en_US.UTF-8"));
+            return boost::locale::to_lower(buf.data(), GetLocale());
         } else {
             std::string retval;
             retval.reserve(buf.size());
