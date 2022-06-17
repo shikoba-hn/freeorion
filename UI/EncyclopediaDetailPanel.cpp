@@ -209,7 +209,7 @@ namespace {
             return std::string{buf.data()};
 
         } else {
-            static_assert(false);
+            std::to_string(t);
         }
 #endif
     }
