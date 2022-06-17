@@ -3589,6 +3589,32 @@ namespace {
         return GG::GUI::GetGUI()->FindWordsStringViews(text);
     }
 
+    bool HasMultibyteChars(std::string_view sv) {
+        return std::any_of(sv.begin(), sv.end(),
+                           [](unsigned char c) -> bool { return c & 0x80; });
+    }
+
+    void ToLower(std::string& buf) {
+        if (HasMultibyteChars(buf)) {
+            buf = boost::locale::to_lower(buf, GetLocale("en_US.UTF-8"));
+        } else {
+            std::transform(buf.begin(), buf.end(), buf.begin(),
+                           [](auto c) { return (c >= 'A' && a <= 'Z') ? (c - 'A' + 'a') : c; });
+        }
+    }
+
+    std::string ToLowerCopy(std::string_view buf) {
+        if (HasMultibyteChars(buf)) {
+            return boost::locale::to_lower(buf.data(), GetLocale("en_US.UTF-8"));
+        } else {
+            std::string retval;
+            retval.reserve(buf.size());
+            std::transform(buf.begin(), buf.end(), std::back_inserter(retval),
+                           [](auto c) { return (c >= 'A' && a <= 'Z') ? (c - 'A' + 'a') : c; });
+            return retval;
+        }
+    }
+
     void SearchPediaArticleForWords(        std::string article_key,
                                             std::string article_directory,
                                             std::pair<std::string, std::string> article_name_link,
@@ -3602,7 +3628,8 @@ namespace {
                                             bool search_article_text)
     {
         //std::cout << "start scanning article " << idx << ": " << article_name_link.first << std::endl;
-        std::string article_name = boost::locale::to_lower(article_name_link.first, GetLocale("en_US.UTF-8"));
+        std::string& article_name = article_name_link.first;
+        ToLower(article_name);
         // search for exact title matches
         if (article_name == search_text) {
             exact_match = std::move(article_name_link);
@@ -3641,7 +3668,7 @@ namespace {
         if (!article_entry.description.empty()) {
             // article present in pedia directly
             const auto& article_text{UserString(article_entry.description)};
-            std::string article_text_lower = boost::locale::to_lower(article_text, GetLocale("en_US.UTF-8"));
+            std::string article_text_lower = ToLowerCopy(article_text);
             if (boost::contains(article_text_lower, search_text))
                 article_match = std::move(article_name_link);
             return;
@@ -3669,13 +3696,14 @@ namespace {
             article_match = std::move(article_name_link);
             return;
         }
-        std::string desc_lower = boost::locale::to_lower(detailed_description, GetLocale("en_US.UTF-8"));
-        if (boost::contains(desc_lower, search_text)) {
+        ToLower(detailed_description);
+        if (boost::contains(detailed_description, search_text)) {
             article_match = std::move(article_name_link);
             return;
         }
     }
 }
+
 
 void EncyclopediaDetailPanel::HandleSearchTextEntered() {
     SectionedScopedTimer timer("HandleSearchTextEntered");
@@ -3685,7 +3713,7 @@ void EncyclopediaDetailPanel::HandleSearchTextEntered() {
     boost::asio::thread_pool thread_pool(num_threads);
 
     // search lists of articles for typed text
-    auto search_text = boost::algorithm::to_lower_copy(m_search_edit->Text());
+    auto search_text = ToLowerCopy(m_search_edit->Text());
     if (search_text.empty())
         return;
 
